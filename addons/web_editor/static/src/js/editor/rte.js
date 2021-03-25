@@ -1,7 +1,7 @@
 odoo.define('web_editor.rte', function (require) {
 'use strict';
 
-var base = require('web_editor.base');
+var fonts = require('wysiwyg.fonts');
 var concurrency = require('web.concurrency');
 var core = require('web.core');
 var Widget = require('web.Widget');
@@ -271,7 +271,7 @@ var RTEWidget = Widget.extend({
         this._getConfig = params && params.getConfig || this._getDefaultConfig;
         this._saveElement = params && params.saveElement || this._saveElement;
 
-        base.computeFonts();
+        fonts.computeFonts();
     },
     /**
      * @override
@@ -487,25 +487,25 @@ var RTEWidget = Widget.extend({
                 return self._saveElement($el, context || weContext.get())
                 .then(function () {
                     $el.removeClass('o_dirty');
-                }, function (response) {
+                }).guardedCatch(function (response) {
                     // because ckeditor regenerates all the dom, we can't just
                     // setup the popover here as everything will be destroyed by
                     // the DOM regeneration. Add markings instead, and returns a
                     // new rejection with all relevant info
                     var id = _.uniqueId('carlos_danger_');
                     $el.addClass('o_dirty oe_carlos_danger ' + id);
-                    var html = (response.data.exception_type === 'except_osv');
+                    var html = (response.message.data.exception_type === 'except_osv');
                     if (html) {
-                        var msg = $('<div/>', {text: response.data.message}).html();
+                        var msg = $('<div/>', {text: response.message.data.message}).html();
                         var data = msg.substring(3, msg.length  -2).split(/', u'/);
-                        response.data.message = '<b>' + data[0] + '</b>' + data[1];
+                        response.message.data.message = '<b>' + data[0] + '</b>' + data[1];
                     }
                     $('.o_editable.' + id)
                         .removeClass(id)
                         .popover({
                             html: html,
                             trigger: 'hover',
-                            content: response.data.message,
+                            content: response.message.data.message,
                             placement: 'auto top',
                         })
                         .popover('show');
@@ -515,7 +515,7 @@ var RTEWidget = Widget.extend({
 
         return Promise.all(defs).then(function () {
             window.onbeforeunload = null;
-        }, function (failed) {
+        }).guardedCatch(function (failed) {
             // If there were errors, re-enable edition
             self.cancel();
             self.start();
@@ -658,11 +658,12 @@ var RTEWidget = Widget.extend({
     _onMousedown: function (ev) {
         var $target = $(ev.target);
         var $editable = $target.closest('.o_editable');
+        var isLink = $target.is('a');
 
         if (this && this.$last && this.$last.length && this.$last[0] !== $target[0]) {
             $('.o_editable_date_field_linked').removeClass('o_editable_date_field_linked');
         }
-        if (!$editable.length || $.summernote.core.dom.isContentEditableFalse($target)) {
+        if (!$editable.length || (!isLink && $.summernote.core.dom.isContentEditableFalse($target))) {
             return;
         }
 
@@ -674,7 +675,7 @@ var RTEWidget = Widget.extend({
             $editable.find('[_moz_abspos]').removeAttr('_moz_abspos');
         });
 
-        if ($target.is('a')) {
+        if (isLink) {
             /**
              * Remove content editable everywhere and add it on the link only so that characters can be added
              * and removed at the start and at the end of it.

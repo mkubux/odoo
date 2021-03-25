@@ -68,7 +68,7 @@
                                             'required': [('slide_type', 'in', ('video'))],
                                             'invisible': [('slide_type', 'not in', ('video'))]}" />
                                         <field name="document_id" invisible="1"/>
-                                        <field name="mime_type" readonly="1" groups="base.group_no_one"/>
+                                        <field name="mime_type" force_save="1" readonly="1" groups="base.group_no_one"/>
                                         <field name="datas" string="Attachment"
                                             attrs="{'invisible': [('slide_type', 'not in', ('document', 'presentation'))]}"/>
                                     </group>
@@ -140,6 +140,18 @@
                         <field name="message_ids" widget="mail_thread"/>
                     </div>
                 </form>
+            </field>
+        </record>
+
+        <record id="view_slide_slide_form_wo_channel_id" model="ir.ui.view">
+            <field name="name">slide.slide.form.wo.channel_id</field>
+            <field name="model">slide.slide</field>
+            <field name="inherit_id" ref="view_slide_slide_form"/>
+            <field name="priority" eval="50"/>
+            <field name="mode">primary</field>
+            <field name="type">form</field>
+            <field name="arch" type="xml">
+                <field name="channel_id" position="replace"/>
             </field>
         </record>
 

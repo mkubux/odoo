@@ -79,16 +79,13 @@ class HrEmployeeBase(models.AbstractModel):
                 ('employee_id', '=', employee.id),
                 ('holiday_status_id.active', '=', True),
                 ('state', '=', 'validate'),
-                '|',
-                    ('date_to', '=', False),
-                    ('date_to', '>=', datetime.date.today()),
             ])
-            employee.allocation_count = sum(allocations.mapped('number_of_days'))
+            employee.allocation_count = float_round(sum(allocations.mapped('number_of_days')), precision_digits=2)
             employee.allocation_display = "%g" % employee.allocation_count
 
     def _compute_total_allocation_used(self):
         for employee in self:
-            employee.allocation_used_count = employee.allocation_count - employee.remaining_leaves
+            employee.allocation_used_count = float_round(employee.allocation_count - employee.remaining_leaves, precision_digits=2)
             employee.allocation_used_display = "%g" % employee.allocation_used_count
 
     def _compute_presence_state(self):
@@ -149,6 +146,10 @@ class HrEmployeeBase(models.AbstractModel):
         if 'parent_id' in values:
             manager = self.env['hr.employee'].browse(values['parent_id']).user_id
             values['leave_manager_id'] = values.get('leave_manager_id', manager.id)
+        if values.get('leave_manager_id', False):
+            approver_group = self.env.ref('hr_holidays.group_hr_holidays_responsible', raise_if_not_found=False)
+            if approver_group:
+                approver_group.sudo().write({'users': [(4, values['leave_manager_id'])]})
         return super(HrEmployeeBase, self).create(values)
 
     def write(self, values):
@@ -158,7 +159,19 @@ class HrEmployeeBase(models.AbstractModel):
                 to_change = self.filtered(lambda e: e.leave_manager_id == e.parent_id.user_id or not e.leave_manager_id)
                 to_change.write({'leave_manager_id': values.get('leave_manager_id', manager.id)})
 
+        old_managers = self.env['res.users']
+        if 'leave_manager_id' in values:
+            old_managers = self.mapped('leave_manager_id')
+            if values['leave_manager_id']:
+                old_managers -= self.env['res.users'].browse(values['leave_manager_id'])
+                approver_group = self.env.ref('hr_holidays.group_hr_holidays_responsible', raise_if_not_found=False)
+                if approver_group:
+                    approver_group.sudo().write({'users': [(4, values['leave_manager_id'])]})
+
         res = super(HrEmployeeBase, self).write(values)
+        # remove users from the Responsible group if they are no longer leave managers
+        old_managers._clean_leave_responsible_users()
+
         if 'parent_id' in values or 'department_id' in values:
             today_date = fields.Datetime.now()
             hr_vals = {}
@@ -171,3 +184,13 @@ class HrEmployeeBase(models.AbstractModel):
             allocations = self.env['hr.leave.allocation'].sudo().search([('state', 'in', ['draft', 'confirm']), ('employee_id', 'in', self.ids)])
             allocations.write(hr_vals)
         return res
+
+class HrEmployeePrivate(models.Model):
+    _inherit = 'hr.employee'
+
+class HrEmployeePublic(models.Model):
+    _inherit = 'hr.employee.public'
+
+    def _compute_leave_status(self):
+        super()._compute_leave_status()
+        self.current_leave_id = False

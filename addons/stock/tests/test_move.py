@@ -365,10 +365,10 @@ class StockMove(SavepointCase):
 
         # no changes on quants, even if i made some move lines with a lot id whom reserved on untracked quants
         self.assertEqual(len(self.gather_relevant(self.product_serial, self.stock_location, strict=True)), 1.0)  # with a qty of 2
-        self.assertEqual(len(self.gather_relevant(self.product_serial, self.stock_location, lot_id=lot1, strict=True)), 1.0)
-        self.assertEqual(len(self.gather_relevant(self.product_serial, self.stock_location, lot_id=lot2, strict=True)), 1.0)
-        self.assertEqual(len(self.gather_relevant(self.product_serial, self.stock_location, lot_id=lot3, strict=True)), 0)
-        self.assertEqual(len(self.gather_relevant(self.product_serial, self.stock_location, lot_id=lot4, strict=True)), 0)
+        self.assertEqual(len(self.gather_relevant(self.product_serial, self.stock_location, lot_id=lot1, strict=True).filtered(lambda q: q.lot_id)), 1.0)
+        self.assertEqual(len(self.gather_relevant(self.product_serial, self.stock_location, lot_id=lot2, strict=True).filtered(lambda q: q.lot_id)), 1.0)
+        self.assertEqual(len(self.gather_relevant(self.product_serial, self.stock_location, lot_id=lot3, strict=True).filtered(lambda q: q.lot_id)), 0)
+        self.assertEqual(len(self.gather_relevant(self.product_serial, self.stock_location, lot_id=lot4, strict=True).filtered(lambda q: q.lot_id)), 0)
 
         move1.move_line_ids.write({'qty_done': 1.0})
 
@@ -678,7 +678,7 @@ class StockMove(SavepointCase):
         self.assertEqual(move1.reserved_availability, 0.0)
         self.assertEqual(len(move1.move_line_ids), 0)
         self.assertEqual(self.env['stock.quant']._get_available_quantity(self.product_serial, self.stock_location, strict=True), 1.0)
-        self.assertEqual(self.env['stock.quant']._get_available_quantity(self.product_serial, self.stock_location, lot_id=lot1, strict=True), 1.0)
+        self.assertEqual(self.env['stock.quant']._get_available_quantity(self.product_serial, self.stock_location, lot_id=lot1, strict=True), 2.0)
 
     def test_putaway_1(self):
         """ Receive products from a supplier. Check that putaway rules are rightly applied on
@@ -4228,8 +4228,9 @@ class StockMove(SavepointCase):
         self.assertEqual(move1.state, 'assigned')
 
     def test_change_product_type(self):
-        """ Changing type of an existing product will raise a user error if some move
-        are reserved.
+        """ Changing type of an existing product will raise a user error if
+            - some move are reserved
+            - switching from a stockable product when qty_available is not zero
         """
         self.env['stock.quant']._update_available_quantity(self.product, self.stock_location, 10)
         move1 = self.env['stock.move'].create({
@@ -4247,6 +4248,11 @@ class StockMove(SavepointCase):
         with self.assertRaises(UserError):
             self.product.type = 'consu'
         move1._action_cancel()
+
+        with self.assertRaises(UserError):
+            self.product.type = 'consu'
+
+        self.env['stock.quant']._update_available_quantity(self.product, self.stock_location, -self.product.qty_available)
         self.product.type = 'consu'
 
         move2 = self.env['stock.move'].create({

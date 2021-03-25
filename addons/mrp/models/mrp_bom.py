@@ -3,7 +3,7 @@
 
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError, ValidationError
-from odoo.tools import float_round
+from odoo.tools import float_round, float_compare
 
 from itertools import groupby
 
@@ -50,6 +50,7 @@ class MrpBom(models.Model):
     sequence = fields.Integer('Sequence', help="Gives the sequence order when displaying a list of bills of material.")
     routing_id = fields.Many2one(
         'mrp.routing', 'Routing', check_company=True,
+        tracking=True,
         help="The operations for producing this BoM.  When a routing is specified, the production orders will "
              " be executed through work orders, otherwise everything is processed in the production order itself. ")
     ready_to_produce = fields.Selection([
@@ -83,7 +84,11 @@ class MrpBom(models.Model):
     def _check_bom_lines(self):
         for bom in self:
             for bom_line in bom.bom_line_ids:
-                if bom.product_id and bom_line.product_id == bom.product_id:
+                if bom.product_id:
+                    same_product = bom.product_id == bom_line.product_id
+                else:
+                    same_product = bom.product_tmpl_id == bom_line.product_id.product_tmpl_id
+                if same_product:
                     raise ValidationError(_("BoM line product %s should not be the same as BoM product.") % bom.display_name)
                 if bom.product_id and bom_line.bom_product_template_attribute_value_ids:
                     raise ValidationError(_("BoM cannot concern product %s and have a line with attributes (%s) at the same time.")
@@ -119,6 +124,21 @@ class MrpBom(models.Model):
         for line in self.bom_line_ids:
             line.operation_id = False
 
+    @api.model_create_multi
+    def create(self, vals_list):
+        res = super().create(vals_list)
+        for bom in res:
+            if float_compare(bom.product_qty, 0, precision_rounding=bom.product_uom_id.rounding) <= 0:
+                raise UserError(_('The quantity to produce must be positive!'))
+        return res
+
+    def write(self, values):
+        res = super().write(values)
+        for bom in self:
+            if float_compare(bom.product_qty, 0, precision_rounding=bom.product_uom_id.rounding) <= 0:
+                raise UserError(_('The quantity to produce must be positive!'))
+        return res
+
     @api.model
     def name_create(self, name):
         # prevent to use string as product_tmpl_id
@@ -128,6 +148,13 @@ class MrpBom(models.Model):
 
     def name_get(self):
         return [(bom.id, '%s%s' % (bom.code and '%s: ' % bom.code or '', bom.product_tmpl_id.display_name)) for bom in self]
+
+    @api.constrains('product_tmpl_id', 'product_id', 'type')
+    def check_kit_has_not_orderpoint(self):
+        product_ids = [pid for bom in self.filtered(lambda bom: bom.type == "phantom")
+                           for pid in (bom.product_id.ids or bom.product_tmpl_id.product_variant_ids.ids)]
+        if self.env['stock.warehouse.orderpoint'].search([('product_id', 'in', product_ids)], count=True):
+            raise ValidationError(_("You can not create a kit-type bill of materials for products that have at least one reordering rule."))
 
     def unlink(self):
         if self.env['mrp.production'].search([('bom_id', 'in', self.ids), ('state', 'not in', ['done', 'cancel'])], limit=1):
@@ -240,8 +267,8 @@ class MrpBomLine(models.Model):
     def _get_default_product_uom_id(self):
         return self.env['uom.uom'].search([], limit=1, order='id').id
 
-    product_id = fields.Many2one( 'product.product', 'Component', required=True, check_company=True)
-    product_tmpl_id = fields.Many2one('product.template', 'Product Template', related='product_id.product_tmpl_id', readonly=False)
+    product_id = fields.Many2one('product.product', 'Component', required=True, check_company=True)
+    product_tmpl_id = fields.Many2one('product.template', 'Product Template', related='product_id.product_tmpl_id')
     company_id = fields.Many2one(
         related='bom_id.company_id', store=True, index=True, readonly=True)
     product_qty = fields.Float(
@@ -305,8 +332,7 @@ class MrpBomLine(models.Model):
             else:
                 line.child_bom_id = self.env['mrp.bom']._bom_find(
                     product_tmpl=line.product_id.product_tmpl_id,
-                    product=line.product_id,
-                    picking_type=line.bom_id.picking_type_id)
+                    product=line.product_id)
 
     @api.depends('product_id')
     def _compute_attachments_count(self):
@@ -321,7 +347,7 @@ class MrpBomLine(models.Model):
     def _compute_child_line_ids(self):
         """ If the BOM line refers to a BOM, return the ids of the child BOM lines """
         for line in self:
-            line.child_line_ids = line.child_bom_id.bom_line_ids.ids
+            line.child_line_ids = line.child_bom_id.bom_line_ids.ids or False
 
     @api.onchange('product_uom_id')
     def onchange_product_uom_id(self):
@@ -354,6 +380,8 @@ class MrpBomLine(models.Model):
         them has to be found on the variant.
         """
         self.ensure_one()
+        if product._name == 'product.template':
+            return False
         if self.bom_product_template_attribute_value_ids:
             for ptal, iter_ptav in groupby(self.bom_product_template_attribute_value_ids.sorted('attribute_line_id'), lambda ptav: ptav.attribute_line_id):
                 if not any([ptav in product.product_template_attribute_value_ids for ptav in iter_ptav]):

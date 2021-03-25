@@ -30,7 +30,7 @@ class WebsiteVisitor(models.Model):
     _order = 'last_connection_datetime DESC'
 
     name = fields.Char('Name')
-    access_token = fields.Char(required=True, default=lambda x: uuid.uuid4().hex, index=True, copy=False, groups='base.group_website_publisher')
+    access_token = fields.Char(required=True, default=lambda x: uuid.uuid4().hex, index=False, copy=False, groups='base.group_website_publisher')
     active = fields.Boolean('Active', default=True)
     website_id = fields.Many2one('website', "Website", readonly=True)
     partner_id = fields.Many2one('res.partner', string="Linked Partner", help="Partner of the last logged in user.")
@@ -171,6 +171,9 @@ class WebsiteVisitor(models.Model):
         access_token = request.httprequest.cookies.get('visitor_uuid')
         if access_token:
             visitor = Visitor.with_context(active_test=False).search([('access_token', '=', access_token)])
+            # Prefetch access_token and other fields. Since access_token has a restricted group and we access
+            # a non restricted field (partner_id) first it is not fetched and will require an additional query to be retrieved.
+            visitor.access_token
 
         if not self.env.user._is_public():
             partner_id = self.env.user.partner_id

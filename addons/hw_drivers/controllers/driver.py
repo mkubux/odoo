@@ -404,6 +404,7 @@ class Manager(Thread):
 
     def get_connected_displays(self):
         display_devices = {}
+        return display_devices
 
         displays = subprocess.check_output(['tvservice', '-l']).decode()
         x_screen = 0
@@ -490,6 +491,7 @@ class Manager(Thread):
             devices[path]['url'] = path
             iot_device = IoTDevice(devices[path], 'printer')
             printer_devices[serial] = iot_device
+        _logger.info('Printer devices: %s', printer_devices)
         return printer_devices
 
     def run(self):

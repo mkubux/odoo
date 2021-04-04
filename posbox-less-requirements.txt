@@ -1,0 +1,7 @@
+mkdir /var/run/odoo
+chmod reinier:reinier /var/run/odoo
+mkdir /var/log/odoo
+chmod reinier:reinier /var/log/odoo
+sudo apt install build-essential libdbus-glib-1-dev libgirepository1.0-dev pkg-config libcairo2-dev gcc python3-dev libgirepository1.0-dev libcups2-dev smbclient
+pip install netifaces evdev pyusb pyserial qrcode gatt dbus-python gobject PyGObject v4l2 pycups
+englobar los range en list

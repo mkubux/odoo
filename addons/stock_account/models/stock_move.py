@@ -34,7 +34,7 @@ class StockMove(models.Model):
         price_unit = self.price_unit
         # If the move is a return, use the original move's price unit.
         if self.origin_returned_move_id and self.origin_returned_move_id.sudo().stock_valuation_layer_ids:
-            price_unit = self.origin_returned_move_id.stock_valuation_layer_ids[-1].unit_cost
+            price_unit = self.origin_returned_move_id.sudo().stock_valuation_layer_ids[-1].unit_cost
         return not self.company_id.currency_id.is_zero(price_unit) and price_unit or self.product_id.standard_price
 
     @api.model
@@ -274,6 +274,10 @@ class StockMove(models.Model):
             svl.stock_move_id._account_entry_move(svl.quantity, svl.description, svl.id, svl.value)
 
         stock_valuation_layers._check_company()
+
+        # Special update for subcontracting and landed cost
+        for svl in stock_valuation_layers:
+            svl._update_stock_move()
 
         # For every in move, run the vacuum for the linked product.
         products_to_vacuum = valued_moves['in'].mapped('product_id')

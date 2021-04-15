@@ -48,6 +48,7 @@ class AccountMove(models.Model):
     l10n_latam_available_document_type_ids = fields.Many2many('l10n_latam.document.type', compute='_compute_l10n_latam_available_document_types')
     l10n_latam_document_type_id = fields.Many2one(
         'l10n_latam.document.type', string='Document Type', readonly=False, auto_join=True, index=True,
+        inverse='_inverse_l10n_latam_document_number',
         states={'posted': [('readonly', True)]}, compute='_compute_l10n_latam_document_type', store=True)
     l10n_latam_sequence_id = fields.Many2one('ir.sequence', compute='_compute_l10n_latam_sequence')
     l10n_latam_document_number = fields.Char(
@@ -228,7 +229,7 @@ class AccountMove(models.Model):
             # generate a tax line.
             zero_taxes = set()
             for line in move.line_ids:
-                for tax in line.tax_ids.flatten_taxes_hierarchy():
+                for tax in line.l10n_latam_tax_ids.flatten_taxes_hierarchy():
                     if tax.tax_group_id not in res or tax.id in zero_taxes:
                         res.setdefault(tax.tax_group_id, {'base': 0.0, 'amount': 0.0})
                         res[tax.tax_group_id]['base'] += tax_balance_multiplicator * (line.amount_currency if line.currency_id else line.balance)
@@ -255,7 +256,8 @@ class AccountMove(models.Model):
         """ The constraint _check_unique_sequence_number is valid for customer bills but not valid for us on vendor
         bills because the uniqueness must be per partner and also because we want to validate on entry creation and
         not on entry validation """
-        for rec in self.filtered(lambda x: x.is_purchase_document() and x.l10n_latam_use_documents and x.l10n_latam_document_number):
+        for rec in self.filtered(lambda x: x.is_purchase_document() and x.l10n_latam_use_documents
+                                           and x.l10n_latam_document_number and x.commercial_partner_id):
             domain = [
                 ('type', '=', rec.type),
                 # by validating name we validate l10n_latam_document_number and l10n_latam_document_type_id
